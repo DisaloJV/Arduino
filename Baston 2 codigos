@@ -1,0 +1,294 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// Configuración de la pantalla OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Pin del sensor cardíaco
+const int sensorPin = A0; // Pin analógico para el sensor cardíaco
+
+// Configuración del baseline y umbral
+int baseline = 500;           // Valor definido manualmente del baseline
+const int Threshold = 200;    // Umbral ajustable basado en baseline
+
+// Configuración del debounce
+const int debounceTime = 250; // Tiempo mínimo entre pulsos (en ms)
+
+// Variables para detección de pulsos y BPM
+unsigned long lastPulse = 0;
+int bpm = 0;
+bool pulseDetected = false;
+
+// Configuración del filtro
+const int filterSize = 6;     // Tamaño reducido del filtro de promedio móvil
+int bpmValues[filterSize] = {0};
+int bpmIndex = 0;
+
+// Rango aceptable de BPM
+const int MIN_BPM = 40;
+const int MAX_BPM = 200;
+
+// Contador para valores anómalos
+int anomalousReadings = 0;
+const int maxAnomalous = 5;   // Reinicia si hay demasiados valores fuera de rango
+
+void setup() {
+  Serial.begin(9600);
+
+ // Inicializar la pantalla OLED
+  if (!display.begin(0x3C)) { // Dirección I2C común: 0x3C
+    Serial.println(F("Error al iniciar OLED."));
+    while (true); // Detener si hay un problema con la pantalla
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  // Mostrar inicio en pantalla
+  display.setCursor(0, 0);
+  display.print("Iniciando...");
+  display.display();
+  delay(500);
+
+  // Mostrar el baseline en el monitor serial
+  Serial.print("Baseline definido manualmente: ");
+  Serial.println(baseline);
+}
+
+void loop() {
+  // Leer el valor del sensor
+  int sensorValue = analogRead(sensorPin);
+
+  // Detectar un pulso si supera el umbral
+  if (sensorValue > baseline + Threshold && !pulseDetected) {
+    unsigned long currentTime = millis();
+    unsigned long timeSinceLastPulse = currentTime - lastPulse;
+
+    if (timeSinceLastPulse > debounceTime) {
+      // Calcular BPM
+      int currentBPM = 60000 / timeSinceLastPulse;
+
+      // Verificar si el BPM está en un rango razonable
+      if (currentBPM >= MIN_BPM && currentBPM <= MAX_BPM) {
+        // Filtrar BPM con promedio móvil
+        bpmValues[bpmIndex] = currentBPM;
+        bpmIndex = (bpmIndex + 1) % filterSize;
+
+        bpm = calculateMovingAverage(bpmValues, filterSize);
+
+        // Resetear contador de valores anómalos
+        anomalousReadings = 0;
+
+        // Mostrar BPM en pantalla OLED
+        displayBPM(bpm);
+
+        // Mostrar en el monitor serial
+        Serial.print("BPM detectado: ");
+        Serial.println(bpm);
+      } else {
+        anomalousReadings++;
+        if (anomalousReadings >= maxAnomalous) {
+          resetBPM();
+        }
+      }
+
+      lastPulse = currentTime;
+    }
+    pulseDetected = true;
+  }
+
+  // Restablecer el estado del pulso cuando el sensor vuelva a valores normales
+  if (sensorValue < baseline + Threshold) {
+    pulseDetected = false;
+  }
+
+  delay(20); // Actualización rápida
+}
+
+// Función para calcular el promedio móvil
+int calculateMovingAverage(int *values, int size) {
+  long sum = 0;
+  for (int i = 0; i < size; i++) {
+    sum += values[i];
+  }
+  return sum / size;
+}
+
+// Función para mostrar BPM en la pantalla OLED
+void displayBPM(int bpm) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("BPM:");
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.print(bpm);
+  display.display();
+}
+
+// Función para reiniciar el cálculo de BPM
+void resetBPM() {
+  Serial.println("Reiniciando cálculo de BPM por valores inestables.");
+  for (int i = 0; i < filterSize; i++) {
+    bpmValues[i] = 0;
+  }
+  bpm = 0;
+  anomalousReadings = 0;
+  displayBPM(bpm);
+}
+/////////////////////////////////////////////////////////
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// Configuración de la pantalla OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Pin del sensor cardíaco
+const int sensorPin = A0; // Pin analógico para el sensor cardíaco
+
+// Configuración del baseline y umbral
+int baseline = 500;           // Valor definido manualmente del baseline
+const int Threshold = 200;    // Umbral ajustable basado en baseline
+
+// Configuración del debounce
+const int debounceTime = 250; // Tiempo mínimo entre pulsos (en ms)
+
+// Variables para detección de pulsos y BPM
+unsigned long lastPulse = 0;
+int bpm = 0;
+bool pulseDetected = false;
+
+// Configuración del filtro
+const int filterSize = 6;     // Tamaño reducido del filtro de promedio móvil
+int bpmValues[filterSize] = {0};
+int bpmIndex = 0;
+
+// Rango aceptable de BPM
+const int MIN_BPM = 40;
+const int MAX_BPM = 200;
+
+// Variables para filtrar ruido
+int smoothedValue = 0;
+const float smoothingFactor = 0.2; // Factor para el filtro paso bajo
+
+// Contador para valores anómalos
+int anomalousReadings = 0;
+const int maxAnomalous = 5;   // Reinicia si hay demasiados valores fuera de rango
+
+void setup() {
+  Serial.begin(9600);
+
+  // Inicializar la pantalla OLED
+  if (!display.begin(0x3C)) { // Dirección I2C común: 0x3C
+    Serial.println(F("Error al iniciar OLED."));
+    while (true); // Detener si hay un problema con la pantalla
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  // Mostrar inicio en pantalla
+  display.setCursor(0, 0);
+  display.print("Iniciando...");
+  display.display();
+  delay(500);
+
+  // Mostrar el baseline en el monitor serial
+  Serial.print("Baseline definido manualmente: ");
+  Serial.println(baseline);
+}
+
+void loop() {
+  // Leer el valor del sensor y aplicar un filtro paso bajo
+  int rawSensorValue = analogRead(sensorPin);
+  smoothedValue = (smoothingFactor * rawSensorValue) + (1 - smoothingFactor) * smoothedValue;
+
+  // Detectar un pulso si supera el umbral
+  if (smoothedValue > baseline + Threshold && !pulseDetected) {
+    unsigned long currentTime = millis();
+    unsigned long timeSinceLastPulse = currentTime - lastPulse;
+
+    if (timeSinceLastPulse > debounceTime) {
+      // Calcular BPM
+      int currentBPM = 60000 / timeSinceLastPulse;
+
+      // Verificar si el BPM está en un rango razonable
+      if (currentBPM >= MIN_BPM && currentBPM <= MAX_BPM) {
+        // Filtrar BPM con promedio móvil
+        bpmValues[bpmIndex] = currentBPM;
+        bpmIndex = (bpmIndex + 1) % filterSize;
+
+        bpm = calculateMovingAverage(bpmValues, filterSize);
+
+        // Resetear contador de valores anómalos
+        anomalousReadings = 0;
+
+        // Mostrar BPM en pantalla OLED
+        displayBPM(bpm);
+
+        // Mostrar en el monitor serial
+        Serial.print("BPM detectado: ");
+        Serial.println(bpm);
+      } else {
+        anomalousReadings++;
+        if (anomalousReadings >= maxAnomalous) {
+          resetBPM();
+        }
+      }
+
+      lastPulse = currentTime;
+    }
+    pulseDetected = true;
+  }
+
+  // Restablecer el estado del pulso cuando el sensor vuelva a valores normales
+  if (smoothedValue < baseline + Threshold) {
+    pulseDetected = false;
+  }
+
+  // Depuración para verificar lecturas
+  Serial.print("Valor sensor (suavizado): ");
+  Serial.println(smoothedValue);
+
+  delay(20); // Actualización rápida
+}
+
+// Función para calcular el promedio móvil
+int calculateMovingAverage(int *values, int size) {
+  long sum = 0;
+  for (int i = 0; i < size; i++) {
+    sum += values[i];
+  }
+  return sum / size;
+}
+
+// Función para mostrar BPM en la pantalla OLED
+void displayBPM(int bpm) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("BPM:");
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.print(bpm);
+  display.display();
+}
+
+// Función para reiniciar el cálculo de BPM
+void resetBPM() {
+  Serial.println("Reiniciando cálculo de BPM por valores inestables.");
+  for (int i = 0; i < filterSize; i++) {
+    bpmValues[i] = 0;
+  }
+  bpm = 0;
+  anomalousReadings = 0;
+  displayBPM(bpm);
+}
